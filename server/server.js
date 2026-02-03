@@ -404,6 +404,23 @@ wss.on("connection", (ws) => {
         game.center.pile1.cards.length = 0;
         game.center.pile2.cards.length = 0;
 
+        // Check for game end before refilling
+        for (const pid of playerIds) {
+          const player = game[pid];
+          const handCount = player.hand.reduce((sum, stack) => sum + stack.length, 0);
+          if (player.deck.length === 0 && handCount === 0) {
+            if (room.timeInterval) {
+              clearInterval(room.timeInterval);
+              room.timeInterval = null;
+            }
+            broadcastRoom(ws.roomId, {
+              type: "GAME_END",
+              winner: playerIds.find(id => id !== pid) || null,
+            });
+            return;
+          }
+        }
+
         const piles = ["pile1", "pile2"];
         const playerIds = Object.keys(game).filter(id => id !== "center");
 
@@ -415,8 +432,6 @@ wss.on("connection", (ws) => {
             }
           }
         }
-
-        if (checkForGameEnd(room, ws.roomId)) return;
 
         await ensurePlayableState(room, ws.roomId);
 

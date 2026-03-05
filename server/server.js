@@ -382,66 +382,68 @@ wss.on("connection", (ws) => {
         break;
       }
       case "STRESS": {
-        console.log("STRESS");
-        const room = rooms.get(ws.roomId);
-        if (!room) return;
-        const game = room.game_state;
-        const opponentId = Object.keys(game).find(
-          (id) => id !== ws.id && id !== "center"
-        );
-        if (!opponentId) return;
-        const opponent = game[opponentId];
-        if (!opponent) return;
-        // Collect all center cards
-        const collectedCards = [
-          ...game.center.pile1.cards,
-          ...game.center.pile2.cards,
-        ];
-        if (collectedCards.length === 0) return;
-        // Add to opponent's deck (bottom of deck)
-        opponent.deck.push(...collectedCards);
-        // Clear center piles
-        game.center.pile1.cards.length = 0;
-        game.center.pile2.cards.length = 0;
+          console.log("STRESS");
+          const room = rooms.get(ws.roomId);
+          if (!room) return;
+          const game = room.game_state;
 
-        // Check for game end before refilling
-        for (const pid of playerIds) {
-          const player = game[pid];
-          const handCount = player.hand.reduce((sum, stack) => sum + stack.length, 0);
-          if (player.deck.length === 0 && handCount === 0) {
-            if (room.timeInterval) {
-              clearInterval(room.timeInterval);
-              room.timeInterval = null;
-            }
-            broadcastRoom(ws.roomId, {
-              type: "GAME_END",
-              winner: playerIds.find(id => id !== pid) || null,
-            });
-            return;
-          }
-        }
+          const playerIds = Object.keys(game).filter(id => id !== "center"); // Move this up
+          const opponentId = playerIds.find(id => id !== ws.id);
+          if (!opponentId) return;
+          const opponent = game[opponentId];
+          if (!opponent) return;
 
-        const piles = ["pile1", "pile2"];
-        const playerIds = Object.keys(game).filter(id => id !== "center");
+          // Collect all center cards
+          const collectedCards = [
+            ...game.center.pile1.cards,
+            ...game.center.pile2.cards,
+          ];
+          if (collectedCards.length === 0) return;
 
-        for (const pile of piles) {
-          if (game.center[pile].length === 0) {
-            for (const pid of playerIds) {
-              const card = drawFromDeckOrHand(game[pid]);
-              if (card) game.center[pile].cards.unshift(card);
+          // Add to opponent's deck (bottom of deck)
+          opponent.deck.push(...collectedCards);
+
+          // Clear center piles
+          game.center.pile1.cards.length = 0;
+          game.center.pile2.cards.length = 0;
+
+          // Check for game end before refilling
+          for (const pid of playerIds) {
+            const player = game[pid];
+            const handCount = player.hand.reduce((sum, stack) => sum + stack.length, 0);
+            if (player.deck.length === 0 && handCount === 0) {
+              if (room.timeInterval) {
+                clearInterval(room.timeInterval);
+                room.timeInterval = null;
+              }
+              broadcastRoom(ws.roomId, {
+                type: "GAME_END",
+                winner: playerIds.find(id => id !== pid) || null,
+              });
+              return;
             }
           }
-        }
 
-        await ensurePlayableState(room, ws.roomId);
+          const piles = ["pile1", "pile2"];
 
-        // Broadcast updated state
-        broadcastRoom(ws.roomId, {
-          type: "GAME_UPDATE",
-          state: game,
-          stressAvailable: computeStressAvailable(room.game_state)
-        });
-        break;
+          for (const pile of piles) {
+            if (game.center[pile].length === 0) {
+              for (const pid of playerIds) {
+                const card = drawFromDeckOrHand(game[pid]);
+                if (card) game.center[pile].cards.unshift(card);
+              }
+            }
+          }
+
+          await ensurePlayableState(room, ws.roomId);
+
+          // Broadcast updated state
+          broadcastRoom(ws.roomId, {
+            type: "GAME_UPDATE",
+            state: game,
+            stressAvailable: computeStressAvailable(room.game_state)
+          });
+          break;
       }
 
       case "INVITE_REMATCH": {
@@ -637,14 +639,32 @@ async function ensurePlayableState(room, roomId) {
   const playerIds = Object.keys(game).filter(id => id !== "center");
 
   // Fill empty piles immediately with one card from each player's deck
-  for (const pile of piles) {
+  for (let i = 0; i < piles.length; i++) {
+    const pile = piles[i];
+    const pid = playerIds[i];
+    if (!pid) continue;
+
     if (game.center[pile].cards.length === 0) {
-      for (const pid of playerIds) {
-        const card = drawFromDeckOrHand(game[pid]);
-        if (card) game.center[pile].cards.unshift(card);
+      const card = drawFromDeckOrHand(game[pid]);
+      if (card) game.center[pile].cards.unshift(card);
+
+      // Check if player has zero cards
+      const player = game[pid];
+      const handCount = player.hand.reduce((sum, stack) => sum + stack.length, 0);
+      if (player.deck.length === 0 && handCount === 0) {
+        if (room.timeInterval) {
+          clearInterval(room.timeInterval);
+          room.timeInterval = null;
+        }
+        const winnerId = playerIds.find(id => id !== pid) || null;
+        broadcastRoom(roomId, {
+          type: "GAME_END",
+          winner: winnerId
+        });
+        return; 
       }
-      game.center[pile].autoRefilled = true;
     }
+    game.center[pile].autoRefilled = true;
   }
 
   // Check if any pile is playable
@@ -662,7 +682,6 @@ async function ensurePlayableState(room, roomId) {
   let stressAvailable = false;
   const pile1Top = game.center.pile1.cards[0];
   const pile2Top = game.center.pile2.cards[0];
-
   if (pile1Top && pile2Top) {
     stressAvailable = pile1Top.slice(0, -1) === pile2Top.slice(0, -1);
   }
@@ -672,32 +691,42 @@ async function ensurePlayableState(room, roomId) {
     console.log("No playable cards on both piles");
 
     room.countdownActive = true;
-
     for (let i = 3; i > 0; i--) {
       broadcastCountdown(roomId, i);
       await new Promise(res => setTimeout(res, 1000));
     }
 
-    // Refill piles with one card from each player
+    // Refill piles again
     for (let i = 0; i < piles.length; i++) {
       const pile = piles[i];
       const pid = playerIds[i];
-      if (pid) {
-        const card = drawFromDeckOrHand(game[pid]);
-        if (card) game.center[pile].cards.unshift(card);
+      if (!pid) continue;
+      const card = drawFromDeckOrHand(game[pid]);
+      if (card) game.center[pile].cards.unshift(card);
+
+      // Check for game end again after refill
+      const player = game[pid];
+      const handCount = player.hand.reduce((sum, stack) => sum + stack.length, 0);
+      if (player.deck.length === 0 && handCount === 0) {
+        if (room.timeInterval) {
+          clearInterval(room.timeInterval);
+          room.timeInterval = null;
+        }
+        const winnerId = playerIds.find(id => id !== pid) || null;
+        broadcastRoom(roomId, {
+          type: "GAME_END",
+          winner: winnerId
+        });
+        return;
       }
-      game.center[pile].autoRefilled = true;
     }
 
     broadcastRoom(roomId, { 
       type: "GAME_UPDATE", 
       state: game,
-      stressAvailable: computeStressAvailable(room.game_state) 
+      stressAvailable: computeStressAvailable(game)
     });
     room.countdownActive = false;
-
-    // After Stress, check for any winners
-    checkForGameEnd(room, roomId);
 
     for (const pile of piles) {
       game.center[pile].autoRefilled = false;

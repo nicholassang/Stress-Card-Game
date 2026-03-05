@@ -1,5 +1,9 @@
 {
   "scripts": {
     "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "nanoid": "^5.1.6",
+    "ws": "^8.19.0"
   }
 }

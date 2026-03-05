@@ -1,72 +1,9 @@
 // App.tsx
 import { useState, useEffect, useRef } from "react";
-
-type CardLabel = string;
-type CardStackType = CardLabel[];
-
-interface PlayerState {
-  deck: string[];
-  hand: [CardStackType, CardStackType, CardStackType, CardStackType];
-}
-
-interface CardStackProps {
-  stack: string[];
-  stackIndex: number;
-  draggable?: boolean;
-  onDragStart?: (stackIndex: number) => void;
-  onDrop?: (stackIndex: number) => void;
-  onMouseDown?: (e: React.MouseEvent<HTMLDivElement>) => void;
-  className?: string;
-}
-
-interface HandRowProps {
-  hand: PlayerState["hand"];
-  top: string;
-  isPlayer: boolean;
-}
-
-interface CursorPosition {
-  x: number;
-  y: number;
-}
-
-interface Opponents {
-  [id: string]: CursorPosition;
-}
-
-interface Pile {
-  cards: string[];
-  autoRefilled: boolean;
-}
-
-interface DeckPileProps {
-  count: number;      
-  label?: string;   
-  mirrored?: boolean;
-  showCount?: boolean; 
-}
-
-interface GameState {
-  [playerId: string]: PlayerState | { pile1: Pile; pile2: Pile };
-  center: {
-    pile1: Pile;
-    pile2: Pile;
-  };
-}
-
-interface CardProps {
-  label: string;
-  draggable?: boolean;
-  onDragStart?: () => void;
-}
-
-interface MatchRecord {
-  matchId: string;          
-  opponentId: string;        
-  result: "win" | "lose" | "tie";
-  timestamp: number;         
-  allowRematch: boolean;    
-}
+import type { GameState, MatchRecord, Opponents, PlayerState } from "./types/gameTypes";
+import { Card } from "./components/Card";
+import { HandRow } from "./components/HandRow";
+import { DeckPile } from "./components/DeckPile";
 
 function App() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -108,6 +45,8 @@ function App() {
   const [recentMatches, setRecentMatches] = useState<MatchRecord[]>([]);
   const opponentIdRef = useRef<string | null>(null);
   const cursorEnabledRef = useRef(true);
+
+  const API_URL = import.meta.env.VITE_API_URL;
 
   // Call on game start / lobby load (from DB)
   useEffect(() => {
@@ -162,7 +101,8 @@ function App() {
 
   // Connect WS and matchmaking
   useEffect(() => {
-    const ws = new WebSocket("ws://https://www.stressgame.nicholassang.com/ws");
+    const ws = new WebSocket("ws://localhost:8080/ws");
+    // const ws = new WebSocket("wss://www.stressgame.nicholassang.com/ws");
     wsRef.current = ws;
 
     // Connection Begin
@@ -485,172 +425,7 @@ function App() {
         left: [],
         right: [],
       };
-
-  const Card: React.FC<CardProps> = ({ 
-    label,
-    draggable,
-    onDragStart
-  }) => (
-    <div
-      draggable={draggable ?? false}
-      onDragStart={onDragStart}
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        border: "1px solid black",
-        height: "9.8em",
-        width: "7em",
-        background: "white",
-        borderRadius: "20px",
-        cursor: draggable ? "grab" : "default",
-        userSelect: "none",
-        color: "black",
-        fontSize: "1em",
-      }}
-      onMouseDown={(e) => {
-        if (winner) return;
-        e.preventDefault()
-      }}
-    >
-      {label}
-    </div>
-  );
-
-  const DeckPile: React.FC<DeckPileProps> = ({ count, label, mirrored = false, showCount = true }) => {
-    const maxVisible = 10; 
-    const visibleCount = Math.min(count, maxVisible);
-
-    return (
-      <div style={{ position: "relative", width: "7em", height: "11em" }}>
-        {[...Array(visibleCount)].map((_, i) => (
-          <div
-            key={i}
-            style={{
-              position: "absolute",
-              top: mirrored ? i * 2 : -i * 2,
-              left: mirrored ? -i * 1.5 : i * 1.5,
-              width: "7em",
-              height: "9.8em",
-              borderRadius: "20px",
-              background: "gray",
-              border: "1px solid black",
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              color: "white",
-              fontWeight: "bold",
-              zIndex: i,
-              userSelect: "none",
-            }}
-          >
-            {i === 0 && label ? label : ""}
-          </div>
-        ))}
-        {showCount && gameState && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: "-1.5em",
-              left: "50%",
-              transform: "translateX(-50%)",
-              fontSize: "0.8em",
-              fontWeight: "bold",
-              userSelect: 'none'
-            }}
-          >
-            {count} cards
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const CardStack: React.FC<CardStackProps> = ({
-    stack,
-    stackIndex,
-    draggable = false,
-    onDragStart,
-    onDrop,
-    onMouseDown,
-    className,
-  }) => {
-    return (
-      <div
-        draggable={false}
-        onDragStart={() => onDragStart?.(stackIndex)}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={() => onDrop?.(stackIndex)}
-        onMouseDown={(e) => {
-          if (winner) return;
-          onMouseDown?.(e);
-          e.preventDefault(); 
-        }}
-        className={className}     
-        style={{
-          position: "relative",
-          width: "7em",
-          height: "11em",
-          cursor: draggable ? "grab" : "default",
-          userSelect: "none",
-        }}
-      >
-        {stack.map((card, index) => (
-          <div
-            key={`${card}-${index}`}
-            style={{
-              position: "absolute",
-              top: -index * 3,
-              left: index * 2,
-              zIndex: index,
-            }}
-          >
-            <Card label={card} />
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-
-  const HandRow: React.FC<HandRowProps> = ({
-    hand,
-    top,
-    isPlayer,
-  }) => {
-    return (
-      <div
-        style={{
-          display: "flex",
-          position: "absolute",
-          top,
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          gap: "5em",
-        }}
-      >
-        {hand.map((stack, index) => (
-          <CardStack
-            key={index}
-            stack={stack}
-            stackIndex={index}
-            draggable={false} 
-            onDragStart={undefined}
-            onMouseDown={(e) => {
-              if (winner) return;
-              if (isPlayer && stack.length > 0) {
-                setDraggedStackIndex(index);
-                setDraggingCard({ label: stack[0], originStack: index });
-                setFloatingCardPos({ x: e.clientX, y: e.clientY });
-              }
-            }}
-            className="hand-stack"
-          />
-        ))}
-      </div>
-    );
-  };
-
+  
   const handleDropOnPile = (viewPile: "left" | "right") => {
     if (draggedStackIndex === null || !playerId) return;
 
@@ -739,7 +514,7 @@ function App() {
   // Save recent matches to Dynamo
   const saveMatchToDB = async (match: MatchRecord & { playerId: string }) => {
     try {
-      await fetch("https://ioqdbpqs68.execute-api.ap-southeast-1.amazonaws.com/Main/", {
+      await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(match),
@@ -754,7 +529,7 @@ function App() {
   // Get recent matches from Dynamo
   const fetchRecentMatches = async () => {
     try {
-      const res = await fetch(`https://ioqdbpqs68.execute-api.ap-southeast-1.amazonaws.com/Main?playerId=${playerId}`);
+      const res = await fetch(`${API_URL}?playerId=${playerId}`);
       const data = await res.json();
       if (data.matches) {
         setRecentMatches(data.matches);
@@ -1009,11 +784,11 @@ function App() {
           }}
         >
           <div id="pile-left" onMouseOver={() => {}}>
-            <Card label={viewPiles.left[0] ?? "Empty"} />
+            <Card label={viewPiles.left[0] ?? "Empty"} winner={winner}/>
           </div>
 
           <div id="pile-right">
-            <Card label={viewPiles.right[0] ?? "Empty"} />
+            <Card label={viewPiles.right[0] ?? "Empty"} winner={winner}/>
           </div>
         </div>
       )}
@@ -1024,6 +799,10 @@ function App() {
           hand={myHandStacks}
           top="88%"
           isPlayer={true}
+          setDraggedStackIndex = {setDraggedStackIndex}
+          setDraggingCard = {setDraggingCard}
+          setFloatingCardPos = {setFloatingCardPos}
+          winner = {winner}
         />
       )}
 
@@ -1033,6 +812,10 @@ function App() {
           hand={opponentHandStacks}
           top="15%"
           isPlayer={false}
+          setDraggedStackIndex = {setDraggedStackIndex}
+          setDraggingCard = {setDraggingCard}
+          setFloatingCardPos = {setFloatingCardPos}
+          winner = {winner}
         />
       )}
 
@@ -1083,7 +866,7 @@ function App() {
           transform: "translate(50%, 50%)",
         }}
       >
-        <DeckPile count={myPlayer?.deck.length ?? 0} showCount={true} />
+        <DeckPile count={myPlayer?.deck.length ?? 0} showCount={true} gameState={gameState}/>
       </div>
 
       {/* Opponent's Deck */}
@@ -1096,7 +879,7 @@ function App() {
           transform: "translate(-50%, -50%) rotate(180deg)",
         }}
       >
-        <DeckPile count={opponentPlayer?.deck.length ?? 0} showCount={false} />
+        <DeckPile count={opponentPlayer?.deck.length ?? 0} showCount={false} gameState={gameState}/>
       </div>
 
       {/* Card Moving Animation */}
